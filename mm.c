@@ -49,6 +49,7 @@ team_t team = {
  */
 int mm_init(void)
 {
+    // temperature change
     return 0;
 }
 
