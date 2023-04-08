@@ -179,7 +179,13 @@ void *mm_realloc(void *ptr, size_t size)
     newptr = mm_malloc(size);
     if (newptr == NULL)
         return NULL;
-    copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
+    // copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
+
+    if (copySize <= DSIZE)
+        copySize = 2 * DSIZE;
+    else
+        copySize = DSIZE * ((size + DSIZE + (DSIZE - 1)) / DSIZE);
+    
     if (size < copySize)
         copySize = size;
     memcpy(newptr, oldptr, copySize);
@@ -267,7 +273,7 @@ static void *find_fit(size_t asize)
             if (GET_SIZE(curr) >= asize)
             {
                 curr += WSIZE;
-                return (void*)curr;
+                return (void *)curr;
             }
             else
             {
