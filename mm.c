@@ -55,8 +55,8 @@ team_t team = {
 /* doyoung
 argument p is usually (void*) pointer.
 */
-#define GET(p) (*(unsigned int *)(p))      /* read a word at address p -> word is 4 byte, and int is also have same 4 byte size */
-#define PUT(p, val) (*(unsigned int *)(p)) /* write a word at address p -> word is 4 byte, and int is also have same 4 byte size */
+#define GET(p) (*(unsigned int *)(p))              /* read a word at address p -> word is 4 byte, and int is also have same 4 byte size */
+#define PUT(p, val) (*(unsigned int *)(p) = (val)) /* write a word at address p -> word is 4 byte, and int is also have same 4 byte size */
 
 /* Read the size and allocated fields from address p */
 /* doyoung
@@ -79,7 +79,7 @@ static char *heap_listp;
 static void *coalesce(void *bp);
 static void *extend_heap(size_t words);
 static void *find_fit(size_t asize);
-// static void place(void *bp, size_t asize);
+static void place(void *bp, size_t asize);
 
 /*
  * mm_init - initialize the malloc package.
@@ -124,8 +124,8 @@ void *mm_malloc(size_t size)
     //     *(size_t *)p = size;
     //     return (void *)((char *)p + SIZE_T_SIZE);
     // }
-    size_t asize;      /* Adjusted block size */
-    size_t extenedize; /* Amount to extend heap if no fit */
+    size_t asize;        /* Adjusted block size */
+    size_t extendedsize; /* Amount to extend heap if no fit */
     char *bp;
     /* Ignore spurious request */
     if (size == 0)
@@ -143,12 +143,13 @@ void *mm_malloc(size_t size)
     /* Search the free list for a fit */
     if ((bp = find_fit(asize)) != NULL)
     {
+        size_t temp_size = GET_SIZE(HDRP(bp));
         place(bp, asize);
         return bp;
     }
     /* No fit found. Get more memory and place the block */
-    extenedize = MAX(asize, CHUNKSIZE);
-    if ((bp = extend_heap(extenedize / WSIZE)) == NULL)
+    extendedsize = MAX(asize, CHUNKSIZE);
+    if ((bp = extend_heap(extendedsize / WSIZE)) == NULL)
         return NULL;
     place(bp, asize);
     return bp;
@@ -240,7 +241,7 @@ static void *coalesce(void *bp)
     }
     else /* Case 4 */
     {
-        size += GET_SIZE(HDRP(PREV_BLKP(bp))) + GET_SIZE(FTRP(FTRP(NEXT_BLKP(bp))));
+        size += GET_SIZE(HDRP(PREV_BLKP(bp))) + GET_SIZE(FTRP(NEXT_BLKP(bp)));
         PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
         PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
         bp = PREV_BLKP(bp);
@@ -250,22 +251,32 @@ static void *coalesce(void *bp)
 /* first fit */
 static void *find_fit(size_t asize)
 {
-    char *curr = heap_listp - WSIZE;
+    char *curr = heap_listp + WSIZE;
     size_t size = GET_SIZE(curr);
-    while (FTRP(curr) < mem_sbrk)
+
+    if (size == 0)
+        return NULL;
+
+    char *end_of_heap = (char *)mem_heap_hi();
+    while (curr + GET_SIZE(curr) <= end_of_heap && curr + WSIZE < end_of_heap)
     {
-        if (!GET_ALLOC(HDRP(curr)))
+        size_t curr_size = GET_SIZE(curr);
+        size_t alloc = GET_ALLOC(curr);
+        if (!GET_ALLOC(curr))
         {
-            if (GET_SIZE(HDRP(curr)) >= asize)
+            if (GET_SIZE(curr) >= asize)
             {
-                printf("asize = {%d}", asize);
-                return HDRP(curr);
+                curr += WSIZE;
+                return (void*)curr;
+            }
+            else
+            {
+                curr = HDRP(NEXT_BLKP(curr + WSIZE));
             }
         }
         else
         {
-            curr +=size;
-            size = GET_SIZE(HDRP(curr));
+            curr = HDRP(NEXT_BLKP(curr + WSIZE));
         }
     }
     return NULL;
@@ -273,5 +284,17 @@ static void *find_fit(size_t asize)
 /*  */
 static void place(void *bp, size_t asize)
 {
-    
+    size_t total_size = GET_SIZE(HDRP(bp));
+    size_t empty_size = total_size - asize;
+
+    if (empty_size >= DSIZE)
+    {
+        PUT(HDRP(bp), PACK(asize, 1));
+        PUT(FTRP(bp), PACK(asize, 1));
+        PUT(HDRP(NEXT_BLKP(bp)), PACK(empty_size, 0));
+        PUT(FTRP(NEXT_BLKP(bp)), PACK(empty_size, 0));
+        return;
+    }
+    PUT(HDRP(bp), PACK(total_size, 1));
+    PUT(FTRP(bp), PACK(total_size, 1));
 }
