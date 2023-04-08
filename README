@@ -6,6 +6,12 @@
 # May not be used, modified, or copied without permission.
 #
 ######################################################################
+***********
+Implicit allocator
+Using default tracefiles in ./traces/
+Perf index = 44 (util) + 7 (thru) = 51/100
+***********
+
 
 ***********
 Main Files:
