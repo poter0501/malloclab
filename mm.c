@@ -424,6 +424,7 @@ void *mm_realloc(void *ptr, size_t size)
     void *newptr;
     size_t copySize;
 
+    copySize = GET_SIZE(HDRP(ptr));
     newptr = mm_malloc(size);
     if (newptr == NULL)
         return NULL;
