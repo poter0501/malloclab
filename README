@@ -7,9 +7,9 @@
 #
 ######################################################################
 ***********
-Explcit allocator
+Segregated fit allocator
 Using default tracefiles in ./traces/
-Perf index = 44 (util) + 11 (thru) = 55/100
+Perf index = 44 (util) + 13 (thru) = 58/100
 ***********
 
 
