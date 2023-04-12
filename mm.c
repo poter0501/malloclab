@@ -77,8 +77,8 @@ p is a word that means 4byte and the last 3bit is a allocation bit and the other
 
 #define SUCC_BP(bp) (char **)(bp + WSIZE)
 #define PRED_BP(bp) (char **)(bp)
-#define CLASS_COUNT 10
-#define multiplier 2
+#define CLASS_COUNT 20
+#define multiplier 4
 
 static char *heap_listp;
 static char *heap_last;
