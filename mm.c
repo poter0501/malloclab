@@ -77,11 +77,13 @@ p is a word that means 4byte and the last 3bit is a allocation bit and the other
 
 #define SUCC_BP(bp) (char **)(bp + WSIZE)
 #define PRED_BP(bp) (char **)(bp)
+#define CLASS_COUNT 10
+#define multiplier 2
 
 static char *heap_listp;
 static char *heap_last;
 static char *heap_last_old;
-static char *free_block_last;
+// static char *free_block_last;
 // static char *free_last;
 static void *coalesce(void *bp);
 static void *extend_heap(size_t words);
@@ -89,7 +91,7 @@ static void *find_fit(size_t asize);
 static void place(void *bp, size_t asize);
 static void *add_free_list(void *bp);
 static void *del_free_list(void *bp);
-
+static int find_index(size_t size);
 /*
  * mm_init - initialize the malloc package.
  */
@@ -104,14 +106,22 @@ int mm_init(void)
     2. Call extend_heap, so the size of heap is extend at CHUNKSIZE, and then create the init available blocks(Prologue header, Prologue footer, Epliogue footer)
     */
     /* Create the initial empty heap */
-    if (((heap_listp = mem_sbrk(6 * WSIZE))) == (void *)-1)
+    if (((heap_listp = mem_sbrk(DSIZE + (2 * CLASS_COUNT * WSIZE) + DSIZE))) == (void *)-1)
         return -1;
-    PUT(heap_listp, 0);                                /* Alignment padding */
-    PUT(heap_listp + (1 * WSIZE), PACK(2 * DSIZE, 1)); /* Prologue header */
-    PUT(heap_listp + (2 * WSIZE), 0);                  /* Prologue header */
-    PUT(heap_listp + (3 * WSIZE), 0);                  /* Prologue header */
-    PUT(heap_listp + (4 * WSIZE), PACK(2 * DSIZE, 1)); /* Prologue footer */
-    PUT(heap_listp + (5 * WSIZE), PACK(0, 1));         /* Epilogue header */
+
+    PUT(heap_listp, 0); /* Alignment padding */
+    int i;
+    PUT(heap_listp + (1 * WSIZE), PACK((2 * CLASS_COUNT) * WSIZE + DSIZE, 1)); /* Prologue header */
+    for (i = 0; i < CLASS_COUNT; i++)
+    {
+        PUT(heap_listp + ((i + 2) * WSIZE), 0); /* Start of free block list */
+    }
+    for (i = CLASS_COUNT; i < 2 * CLASS_COUNT; i++)
+    {
+        PUT(heap_listp + ((i + 2) * WSIZE), 0); /* Last of free block list */
+    }
+    PUT(heap_listp + ((i + 2) * WSIZE), PACK((2 * CLASS_COUNT) * WSIZE + DSIZE, 1)); /* Prologue footer */
+    PUT(heap_listp + ((i + 3) * WSIZE), PACK(0, 1));                                 /* Epilogue header */
     heap_listp += WSIZE;
 
     /* Extend the empty heap with a free block of CHUNKSIZE bytes */
@@ -130,8 +140,6 @@ static void *extend_heap(size_t words)
     char *bp;
     size_t size;
 
-    // printf("mem_heap_hi = %x, mem_heap_lo = %x , mem_heap_size = %x\n",
-    //        (unsigned int *)mem_heap_hi() + 1, (unsigned int *)mem_heap_lo(), (unsigned int *)mem_heapsize());
     heap_last_old = heap_last;
 
     /* Allocate an even number of words to maintain alignment */
@@ -144,33 +152,42 @@ static void *extend_heap(size_t words)
     PUT(FTRP(bp), PACK(size, 0));         /* Free block footer */
     PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1)); /* New epilogue header */
     heap_last = HDRP(NEXT_BLKP(bp));
-    // printf("mem_heap_hi = %x, mem_heap_lo = %x , mem_heap_size = %x\n",
-    //        (unsigned int *)mem_heap_hi() + 1, (unsigned int *)mem_heap_lo(), (unsigned int *)mem_heapsize());
 
-    // 가용 블럭이 없는 경우 프롤로그 블럭의 succ가 에필로그 블록을 가르키고 있게 한다.
-    if (GET(heap_listp + DSIZE) == (unsigned int *)heap_last_old || GET(heap_listp + DSIZE) == NULL)
-    {
-        PUT(heap_listp + DSIZE, (unsigned int *)heap_last);
-    }
-    /* 가용 블럭 리스트의 마지막 블럭의 succ를 새로 갱신된 에필로그 블럭의 주소로 갱신 */
-    unsigned int *curr = GET(heap_listp + DSIZE);
-    // if (curr != (unsigned int *)heap_last) /* free block list 가 null이 아닐 경우 */
+    // // 가용 블럭이 없는 경우 프롤로그 블럭의 succ가 에필로그 블록을 가르키고 있게 한다.
+    // if (GET(heap_listp + DSIZE) == (unsigned int *)heap_last_old || GET(heap_listp + DSIZE) == NULL)
     // {
-    //     unsigned int *succ = GET(curr + 2);
-    //     while (succ != (unsigned int *)heap_last_old)
-    //     {
-    //         curr = succ;
-    //         succ = GET(curr + 2);
-    //     }
-    //     PUT(curr + 2, (unsigned int *)heap_last);
+    //     PUT(heap_listp + DSIZE, (unsigned int *)heap_last);
     // }
-    if (free_block_last != NULL)
+    // /* 가용 블럭 리스트의 마지막 블럭의 succ를 새로 갱신된 에필로그 블럭의 주소로 갱신 */
+    // unsigned int *curr = GET(heap_listp + DSIZE);
+    // if (free_block_last != NULL)
+    // {
+    //     unsigned int *last = free_block_last;
+    //     unsigned int *succ = GET(last + 2);
+    //     if (succ == heap_last_old)
+    //     {
+    //         PUT(last + 2, (unsigned int *)heap_last);
+    //     }
+    // }
+    for (int i = 1; i < CLASS_COUNT + 1; i++)
     {
-        unsigned int *last = free_block_last;
-        unsigned int *succ = GET(last + 2);
-        if (succ == heap_last_old)
+        unsigned int *start = GET(heap_listp + (i * WSIZE));
+        // 가용 블럭이 없는 경우 프롤로그 블럭의 succ가 에필로그 블록을 가르키고 있게 한다.
+        if (start == (unsigned int *)heap_last_old || start == NULL)
         {
-            PUT(last+2, (unsigned int *)heap_last);
+            PUT(heap_listp + (i * WSIZE), (unsigned int *)heap_last);
+        }
+
+        /* 가용 블럭 리스트의 마지막 블럭의 succ를 새로 갱신된 에필로그 블럭의 주소로 갱신 */
+        unsigned int *free_block_last = GET(heap_listp + (i + CLASS_COUNT) * WSIZE);
+        if (free_block_last != NULL)
+        {
+            unsigned int *last = free_block_last;
+            unsigned int *succ = GET(last + 2);
+            if (succ == heap_last_old)
+            {
+                PUT(last + 2, (unsigned int *)heap_last);
+            }
         }
     }
 
@@ -227,17 +244,33 @@ static void *coalesce(void *bp)
 /* first fit */
 static void *find_fit(size_t asize)
 {
-    unsigned int *curr = GET(heap_listp + DSIZE);
-    if (curr == (unsigned int *)heap_last)
-        return NULL;
-
-    for (curr; GET_ALLOC(curr) == 0; curr = GET(curr + 2))
+    int idx = find_index(asize);
+    for (idx; idx < CLASS_COUNT + 1; idx++)
     {
-        if (GET_SIZE(curr) >= asize)
-            return curr + 1;
+        unsigned int *free_block_start = heap_listp + (idx * WSIZE);
+        unsigned int *curr = GET(free_block_start);
+        if (curr == (unsigned int *)heap_last)
+            continue;
+        // return NULL;
+        for (curr; GET_ALLOC(curr) == 0; curr = GET(curr + 2))
+        {
+            if (GET_SIZE(curr) >= asize)
+                return curr + 1;
+        }
     }
-
     return NULL;
+}
+static int find_index(size_t size)
+{
+    int i;
+    for (i = 2; i < CLASS_COUNT + 2; i++)
+    {
+        size_t start_range = 2 << (i * multiplier);
+        size_t end_range = 2 << ((i + 1) * multiplier);
+        if (start_range <= size < end_range)
+            return i - 1;
+    }
+    return CLASS_COUNT;
 }
 /*  */
 static void place(void *bp, size_t asize)
@@ -251,9 +284,6 @@ static void place(void *bp, size_t asize)
         PUT(FTRP(bp), PACK(asize, 1));
         del_free_list(bp);
 
-        // PUT(HDRP(NEXT_BLKP(bp)) + WSIZE, (unsigned int*)(HDRP(bp) + WSIZE));
-        // PUT(HDRP(NEXT_BLKP(bp)) + DSIZE, (unsigned int*)(HDRP(bp) + DSIZE));
-
         bp = NEXT_BLKP(bp);
         PUT(HDRP(bp), PACK(empty_size, 0));
         PUT(FTRP(bp), PACK(empty_size, 0));
@@ -266,13 +296,19 @@ static void place(void *bp, size_t asize)
 }
 static void *add_free_list(void *bp)
 {
-    unsigned int *curr = GET(heap_listp + DSIZE);
+    size_t size = GET_SIZE(HDRP(bp));
+    int idx = find_index(bp);
+
+    unsigned int *free_block_start = heap_listp + (idx * WSIZE);
+    unsigned int *free_block_last = heap_listp + ((idx + CLASS_COUNT) * WSIZE);
+
+    unsigned int *curr = GET(free_block_start);
     if (curr == NULL || curr == (unsigned int *)heap_last)
     {
-        PUT(heap_listp + DSIZE, (unsigned int *)HDRP(bp));
-        PUT(HDRP(bp) + WSIZE, (unsigned int *)heap_listp);
+        PUT(free_block_start, (unsigned int *)HDRP(bp));
+        PUT(HDRP(bp) + WSIZE, free_block_start);
         PUT(HDRP(bp) + DSIZE, heap_last);
-        free_block_last = HDRP(bp);
+        PUT(free_block_last, (unsigned int *)HDRP(bp));
         return;
     }
 
@@ -289,22 +325,24 @@ static void *add_free_list(void *bp)
                 PUT(temp + 2, (unsigned int *)HDRP(bp));
                 PUT(HDRP(bp) + WSIZE, temp);
                 PUT(HDRP(bp) + DSIZE, heap_last);
-                free_block_last = HDRP(bp);
+                // free_block_last = HDRP(bp);
+                PUT(free_block_last, (unsigned int *)HDRP(bp));
                 return;
             }
         }
         else /* new(bp) -> curr */
         {
             unsigned int *pred = GET(curr + 1);
-            if (pred == (unsigned int *)heap_listp) /* start -> new -> curr */
+            if (pred == free_block_start) /* start -> new -> curr */
             {
-                PUT(heap_listp + DSIZE, (unsigned int *)HDRP(bp));
-                PUT(HDRP(bp) + WSIZE, (unsigned int *)heap_listp);
+                PUT(free_block_start, (unsigned int *)HDRP(bp));
+                PUT(HDRP(bp) + WSIZE, free_block_start);
                 PUT(HDRP(bp) + DSIZE, curr);
                 if (curr != heap_last)
                     PUT(curr + 1, (unsigned int *)HDRP(bp));
                 else
-                    free_block_last = HDRP(bp);
+                    // free_block_last = HDRP(bp);
+                    PUT(free_block_last, (unsigned int *)HDRP(bp));
 
                 return;
             }
@@ -316,7 +354,8 @@ static void *add_free_list(void *bp)
                 if (curr != heap_last)
                     PUT(curr + 1, (unsigned int *)HDRP(bp));
                 else
-                    free_block_last = HDRP(bp);
+                    // free_block_last = HDRP(bp);
+                    PUT(free_block_last, (unsigned int *)HDRP(bp));
 
                 return;
             }
@@ -328,34 +367,42 @@ static void *del_free_list(void *bp)
     unsigned int *curr = HDRP(bp);
     unsigned int *pred = GET(curr + 1);
     unsigned int *succ = GET(curr + 2);
+
+    size_t size = GET_SIZE(HDRP(bp));
+    int idx = find_index(bp);
+
+    unsigned int *free_block_start = heap_listp + (idx * WSIZE);
+    unsigned int *free_block_last = heap_listp + ((idx + CLASS_COUNT) * WSIZE);
     /*
     case 1: start -> curr -> last
     case 2: start -> curr -> succ
     case 3: pred -> curr -> last
     case 4: pred -> curr -> succ
     */
-    if (pred == heap_listp && succ == heap_last) /* case 1 */
+    if (pred == free_block_start && succ == heap_last) /* case 1 */
     {
-        PUT(heap_listp + DSIZE, (unsigned int *)heap_last);
+        PUT(free_block_start, (unsigned int *)heap_last);
         PUT(curr + 1, 0);
         PUT(curr + 2, 0);
-        free_block_last = NULL;
+        // free_block_last = NULL;
+        PUT(free_block_last, 0);
     }
-    else if (pred == heap_listp && succ != heap_last) /* case 2 */
+    else if (pred == free_block_start && succ != heap_last) /* case 2 */
     {
-        PUT(heap_listp + DSIZE, succ);
-        PUT(succ + 1, (unsigned int *)heap_listp);
+        PUT(free_block_start, succ);
+        PUT(succ + 1, free_block_start);
         PUT(curr + 1, 0);
         PUT(curr + 2, 0);
     }
-    else if (pred != heap_listp && succ == heap_last) /* case 3 */
+    else if (pred != free_block_start && succ == heap_last) /* case 3 */
     {
         PUT(pred + 2, (unsigned int *)heap_last);
         PUT(curr + 1, 0);
         PUT(curr + 2, 0);
-        free_block_last = pred;
+        // free_block_last = pred;
+        PUT(free_block_last, pred);
     }
-    else if (pred != heap_listp && succ != heap_last)
+    else if (pred != free_block_start && succ != heap_last)
     {
         PUT(pred + 2, succ);
         PUT(succ + 1, pred);
@@ -392,7 +439,6 @@ void *mm_malloc(size_t size)
     /* Search the free list for a fit */
     if ((bp = find_fit(asize)) != NULL)
     {
-        size_t temp_size = GET_SIZE(HDRP(bp));
         place(bp, asize);
         return bp;
     }
