@@ -154,15 +154,24 @@ static void *extend_heap(size_t words)
     }
     /* 가용 블럭 리스트의 마지막 블럭의 succ를 새로 갱신된 에필로그 블럭의 주소로 갱신 */
     unsigned int *curr = GET(heap_listp + DSIZE);
-    if (curr != (unsigned int *)heap_last) /* free block list 가 null이 아닐 경우 */
+    // if (curr != (unsigned int *)heap_last) /* free block list 가 null이 아닐 경우 */
+    // {
+    //     unsigned int *succ = GET(curr + 2);
+    //     while (succ != (unsigned int *)heap_last_old)
+    //     {
+    //         curr = succ;
+    //         succ = GET(curr + 2);
+    //     }
+    //     PUT(curr + 2, (unsigned int *)heap_last);
+    // }
+    if (free_block_last != NULL)
     {
-        unsigned int *succ = GET(curr + 2);
-        while (succ != (unsigned int *)heap_last_old)
+        unsigned int *last = free_block_last;
+        unsigned int *succ = GET(last + 2);
+        if (succ == heap_last_old)
         {
-            curr = succ;
-            succ = GET(curr + 2);
+            PUT(last+2, (unsigned int *)heap_last);
         }
-        PUT(curr + 2, (unsigned int *)heap_last);
     }
 
     /* Coalesce if the previous block was free */
@@ -263,7 +272,7 @@ static void *add_free_list(void *bp)
         PUT(heap_listp + DSIZE, (unsigned int *)HDRP(bp));
         PUT(HDRP(bp) + WSIZE, (unsigned int *)heap_listp);
         PUT(HDRP(bp) + DSIZE, heap_last);
-        // free_last = HDRP(bp);
+        free_block_last = HDRP(bp);
         return;
     }
 
@@ -280,7 +289,7 @@ static void *add_free_list(void *bp)
                 PUT(temp + 2, (unsigned int *)HDRP(bp));
                 PUT(HDRP(bp) + WSIZE, temp);
                 PUT(HDRP(bp) + DSIZE, heap_last);
-                // free_last = HDRP(bp);
+                free_block_last = HDRP(bp);
                 return;
             }
         }
@@ -294,6 +303,8 @@ static void *add_free_list(void *bp)
                 PUT(HDRP(bp) + DSIZE, curr);
                 if (curr != heap_last)
                     PUT(curr + 1, (unsigned int *)HDRP(bp));
+                else
+                    free_block_last = HDRP(bp);
 
                 return;
             }
@@ -304,6 +315,8 @@ static void *add_free_list(void *bp)
                 PUT(HDRP(bp) + DSIZE, curr);
                 if (curr != heap_last)
                     PUT(curr + 1, (unsigned int *)HDRP(bp));
+                else
+                    free_block_last = HDRP(bp);
 
                 return;
             }
@@ -326,6 +339,7 @@ static void *del_free_list(void *bp)
         PUT(heap_listp + DSIZE, (unsigned int *)heap_last);
         PUT(curr + 1, 0);
         PUT(curr + 2, 0);
+        free_block_last = NULL;
     }
     else if (pred == heap_listp && succ != heap_last) /* case 2 */
     {
@@ -339,6 +353,7 @@ static void *del_free_list(void *bp)
         PUT(pred + 2, (unsigned int *)heap_last);
         PUT(curr + 1, 0);
         PUT(curr + 2, 0);
+        free_block_last = pred;
     }
     else if (pred != heap_listp && succ != heap_last)
     {
